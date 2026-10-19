@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>PascaLex IDE</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, sans-serif; height: 100vh; display: flex; flex-direction: column; background: #f3f3f3; }
+
+  #barra { background: #2d4a7a; color: #fff; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
+  #barra h1 { font-size: 18px; margin: 0 16px 0 0; }
+  #barra button { padding: 6px 14px; border: 0; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  #btnCompilar { background: #3cb371; color: #fff; font-weight: bold; }
+
+  #principal { flex: 1; display: flex; min-height: 0; }
+
+  /* editor: numeros de linha | camada com os erros por baixo e textarea por cima */
+  #editor { flex: 1; display: flex; background: #fff; border-right: 1px solid #ccc; overflow: hidden; }
+  #numeros, #camadaErros, #codigo {
+    font-family: Consolas, "Courier New", monospace; font-size: 15px; line-height: 21px;
+    padding: 8px; margin: 0; white-space: pre; tab-size: 4;
+  }
+  #numeros { background: #eee; color: #999; text-align: right; overflow: hidden; min-width: 44px; user-select: none; }
+  #area { position: relative; flex: 1; }
+  #camadaErros, #codigo { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; overflow: auto; }
+  #camadaErros { color: transparent; pointer-events: none; }
+  #camadaErros mark { color: transparent; background: rgba(255,0,0,.12);
+    text-decoration: underline wavy red; text-decoration-skip-ink: none; }
+  #codigo { background: transparent; resize: none; outline: none; color: #111; }
+
+  /* painel da direita */
+  #lateral { width: 420px; display: flex; flex-direction: column; background: #fff; }
+  #abas { display: flex; border-bottom: 1px solid #ccc; }
+  #abas button { flex: 1; padding: 8px; border: 0; background: #e8e8e8; cursor: pointer; }
+  #abas button.ativa { background: #fff; font-weight: bold; }
+  #conteudo { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid #eee; text-align: left; }
+  th { background: #f7f7f7; position: sticky; top: 0; }
+  td.lex { font-family: monospace; }
+
+  /* lista de erros */
+  #erros { height: 140px; overflow: auto; background: #fff; border-top: 2px solid #ccc; font-size: 14px; }
+  #erros div { padding: 4px 10px; cursor: pointer; }
+  #erros .err { color: #c00; }
+  #erros .err:hover { background: #fee; }
+  #erros .ok { color: #2a8a2a; }
+  #status { background: #ddd; font-size: 12px; padding: 3px 10px; }
+</style>
+</head>
+<body>
+
+<div id="barra">
+  <h1>PascaLex IDE</h1>
+  <button id="btnNovo">Novo</button>
+  <button id="btnAbrir">Abrir</button>
+  <button id="btnSalvar">Salvar</button>
+  <button id="btnCompilar">Compilar</button>
+  <button id="btnAutomato">Ver autômato</button>
+  <input type="file" id="arquivo" accept=".pas,.txt" hidden>
+</div>
+
+<div id="principal">
+  <div id="editor">
+    <pre id="numeros">1</pre>
+    <div id="area">
+      <pre id="camadaErros"></pre>
+      <textarea id="codigo" spellcheck="false" wrap="off"></textarea>
+    </div>
+  </div>
+
+  <div id="lateral">
+    <div id="abas">
+      <button data-aba="tokens" class="ativa">Tokens</button>
+      <button data-aba="simbolos">Tabela de Símbolos</button>
+    </div>
+    <div id="conteudo"></div>
+  </div>
+</div>
+
+<div id="erros"></div>
+<div id="status">Linha 1, Coluna 1</div>
+
+<script src="lexer.js"></script>
+<script>
+const codigo = document.getElementById('codigo');
+const camadaErros = document.getElementById('camadaErros');
+const numeros = document.getElementById('numeros');
+const painelErros = document.getElementById('erros');
+const conteudo = document.getElementById('conteudo');
+let resultado = null;
+let abaAtual = 'tokens';
+let compilado = false;
+let espera = null;
+
+codigo.value =
+`program Exemplo;
+// comentario de uma linha
+var x, y : integer;
+    nome : string;
+{ comentario
+  de varias linhas }
+begin
+  x := 10;
+  y := x * 2.5;
+  nome := 'Pascal';
+  (* linhas abaixo com erro *)
+  total$ := 3;
+  identificadorMuitoGrande := 1;
+  z := 12abc;
+end.`;
+
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// roda o analisador e atualiza a tela
+function analisarCodigo() {
+  const texto = codigo.value;
+  resultado = analisar(texto);
+
+  // numeros de linha
+  const qtd = texto.split('\n').length;
+  numeros.textContent = Array.from({ length: qtd }, (_, k) => k + 1).join('\n');
+
+  // sublinhado vermelho: copia o texto e marca os trechos com erro
+  let html = '', ultimo = 0;
+  resultado.erros.forEach(e => {
+    html += esc(texto.slice(ultimo, e.inicio)) + '<mark>' + esc(texto.slice(e.inicio, e.fim)) + '</mark>';
+    ultimo = e.fim;
+  });
+  camadaErros.innerHTML = html + esc(texto.slice(ultimo)) + '\n';
+
+  // lista de erros
+  if (resultado.erros.length === 0) {
+    painelErros.innerHTML = compilado ? '<div class="ok">Compilado sem erros léxicos.</div>' : '';
+  } else {
+    painelErros.innerHTML = resultado.erros.map((e, k) =>
+      `<div class="err" data-k="${k}">Erro léxico (linha ${e.linha}, coluna ${e.coluna}): ${esc(e.msg)}</div>`
+    ).join('');
+  }
+  mostrarAba();
+  alinhar();
+}
+
+function mostrarAba() {
+  if (!resultado) return;
+  if (abaAtual === 'tokens') {
+    conteudo.innerHTML = '<table><tr><th>#</th><th>Linha</th><th>Col</th><th>Token</th><th>Lexema</th></tr>' +
+      resultado.tokens.map((t, k) =>
+        `<tr><td>${k + 1}</td><td>${t.linha}</td><td>${t.coluna}</td><td>${t.token}</td><td class="lex">${esc(t.lexema)}</td></tr>`
+      ).join('') + '</table>';
+  } else {
+    conteudo.innerHTML = '<table><tr><th>#</th><th>Lexema</th><th>Token</th><th>Tipo</th></tr>' +
+      resultado.tabelaSimbolos.map((s, k) =>
+        `<tr><td>${k + 1}</td><td class="lex">${esc(s.lexema)}</td><td>${s.token}</td><td>${s.tipo}</td></tr>`
+      ).join('') + '</table>';
+  }
+}
+
+// analisa enquanto digita (espera 300ms sem digitar)
+codigo.addEventListener('input', () => {
+  compilado = false;
+  clearTimeout(espera);
+  espera = setTimeout(analisarCodigo, 300);
+});
+
+// rolagem: mantem os erros e os numeros de linha alinhados com o texto
+function alinhar() {
+  camadaErros.scrollTop = codigo.scrollTop;
+  camadaErros.scrollLeft = codigo.scrollLeft;
+  numeros.scrollTop = codigo.scrollTop;
+}
+codigo.addEventListener('scroll', alinhar);
+
+// mostra linha e coluna do cursor
+function atualizarStatus() {
+  const antes = codigo.value.slice(0, codigo.selectionStart).split('\n');
+  document.getElementById('status').textContent =
+    `Linha ${antes.length}, Coluna ${antes[antes.length - 1].length + 1}`;
+}
+['keyup', 'click'].forEach(ev => codigo.addEventListener(ev, atualizarStatus));
+
+// clicar no erro leva o cursor ate ele
+painelErros.addEventListener('click', e => {
+  const k = e.target.dataset.k;
+  if (k === undefined) return;
+  const erro = resultado.erros[k];
+  codigo.focus();
+  codigo.setSelectionRange(erro.inicio, erro.fim);
+  atualizarStatus();
+  setTimeout(alinhar, 0);
+});
+
+document.querySelectorAll('#abas button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#abas button').forEach(x => x.classList.remove('ativa'));
+  b.classList.add('ativa');
+  abaAtual = b.dataset.aba;
+  mostrarAba();
+}));
+
+document.getElementById('btnCompilar').onclick = () => { compilado = true; analisarCodigo(); };
+document.getElementById('btnNovo').onclick = () => { codigo.value = ''; compilado = false; analisarCodigo(); };
+document.getElementById('btnAutomato').onclick = () => window.open('automato.png');
+document.getElementById('btnAbrir').onclick = () => document.getElementById('arquivo').click();
+document.getElementById('arquivo').onchange = async e => {
+  const f = e.target.files[0];
+  if (f) { codigo.value = await f.text(); compilado = false; analisarCodigo(); }
+};
+document.getElementById('btnSalvar').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([codigo.value], { type: 'text/plain' }));
+  a.download = 'programa.pas';
+  a.click();
+};
+
+analisarCodigo();
+</script>
+</body>
+</html>

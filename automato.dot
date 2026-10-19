@@ -1,0 +1,88 @@
+// AFD do analisador lexico PascaLex
+// gerar a imagem: dot -Tpng automato.dot -o automato.png
+digraph AFD {
+  rankdir=TB; nodesep=0.25; ranksep=0.45;
+  node [shape=circle, fontname="Arial", fontsize=11];
+  edge [fontname="Arial", fontsize=10];
+
+  inicio [shape=point];
+  inicio -> q0;
+
+  // estados finais (emitem token)
+  node [shape=doublecircle];
+  q1 [label="q1\nID"];
+  q2 [label="q2\nNUM"];
+  q4 [label="q4\nNUM\n(real)"];
+  q6 [label="q6\nLITERAL"];
+  q7 [label="q7\nDIVISAO"];
+  q12 [label="q12\nABRE_PAR"];
+  q15 [label="q15\nDOIS\nPONTOS"];
+  q16 [label="q16\nATRIB"];
+  q17 [label="q17\nMENOR"];
+  q18 [label="q18\nMENOR\nIGUAL"];
+  q19 [label="q19\nDIFERENTE"];
+  q20 [label="q20\nMAIOR"];
+  q21 [label="q21\nMAIOR\nIGUAL"];
+  q22 [label="q22\nsimbolo"];
+
+  node [shape=circle];
+  q3; q5; q8; q9; q10; q11;
+  erro [label="ERRO", shape=box, color=red, fontcolor=red];
+
+  q0 -> q0  [label="espaco, tab, \\n"];
+
+  // identificador / palavra reservada
+  q0 -> q1  [label="letra"];
+  q1 -> q1  [label="letra, digito, _"];
+
+  // numeros
+  q0 -> q2  [label="digito"];
+  q2 -> q2  [label="digito"];
+  q2 -> q3  [label="."];
+  q3 -> q4  [label="digito"];
+  q4 -> q4  [label="digito"];
+
+  // literal
+  q0 -> q5  [label="'"];
+  q5 -> q5  [label="qualquer\nmenos ' e \\n"];
+  q5 -> q6  [label="'"];
+
+  // barra e comentario //
+  q0 -> q7  [label="/"];
+  q7 -> q8  [label="/"];
+  q8 -> q8  [label="qualquer\nmenos \\n"];
+  q8 -> q0  [label="\\n"];
+
+  // comentario { }
+  q0 -> q9  [label="{"];
+  q9 -> q9  [label="qualquer\nmenos }"];
+  q9 -> q0  [label="}"];
+
+  // parenteses e comentario (* *)
+  q0 -> q12 [label="("];
+  q12 -> q10 [label="*"];
+  q10 -> q10 [label="qualquer\nmenos *"];
+  q10 -> q11 [label="*"];
+  q11 -> q11 [label="*"];
+  q11 -> q10 [label="outro"];
+  q11 -> q0  [label=")"];
+
+  // dois pontos / atribuicao
+  q0 -> q15 [label=":"];
+  q15 -> q16 [label="="];
+
+  // < <= <>
+  q0 -> q17 [label="<"];
+  q17 -> q18 [label="="];
+  q17 -> q19 [label=">"];
+
+  // > >=
+  q0 -> q20 [label=">"];
+  q20 -> q21 [label="="];
+
+  // simbolos de um caractere
+  q0 -> q22 [label="= + - * ; , . ) [ ]"];
+
+  // qualquer outro caractere
+  q0 -> erro [label="outro\n($ @ # ! ? ...)", color=red, fontcolor=red];
+}
